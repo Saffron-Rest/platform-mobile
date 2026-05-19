@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "Saffron Cashier",
+    "slug": "saffron-cashflow",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "saffron",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1614"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.saffron.cashflow",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Take photos of expense receipts and invoices.",
+        "NSPhotoLibraryUsageDescription": "Attach receipt photos to expense lines.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1a1614"
+      },
+      "package": "com.saffron.cashflow",
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "notification": {
+      "icon": "./assets/icon.png",
+      "color": "#c45c26"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-asset",
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#c45c26",
+          "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Attach receipt photos to expenses.",
+          "cameraPermission": "Take photos of expense receipts."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "bb69bbcc-5bae-469f-a40c-be15524ae2cd"
+      }
+    }
+  }
+}
