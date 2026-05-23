@@ -1,0 +1,298 @@
+# Saffron Cashier — single-file CI/CD pipeline.
+#
+# Auto:    bump `expo.version` in app.json + push → builds on EAS,
+#          distributes to Firebase App Distribution, tags vX.Y.Z,
+#          and opens a GitHub Release.
+# Manual:  Actions → "ci" → "Run workflow" — pick platform, profile,
+#          and whether to upload to Firebase or just build.
+#
+# Required GitHub repo secrets:
+#   EXPO_TOKEN, FIREBASE_SERVICE_ACCOUNT,
+#   FIREBASE_APP_ID_ANDROID, FIREBASE_APP_ID_IOS (skip iOS-only if N/A)
+# Optional GitHub repo variables:
+#   FIREBASE_GROUPS    (default: testers)
+#   RELEASE_PLATFORMS  (default: android) — android | ios | all
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - app.json
+      - .github/workflows/ci.yml
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        required: true
+        default: android
+        type: choice
+        options: [android, ios, all]
+      profile:
+        description: EAS profile (preview = internal, production = store)
+        required: true
+        default: preview
+        type: choice
+        options: [preview, production]
+      distribute:
+        description: Upload build to Firebase App Distribution?
+        required: true
+        default: firebase
+        type: choice
+        options: [firebase, none]
+      force:
+        description: Run even if app.json version did not change
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: mobile-ci
+  cancel-in-progress: false
+
+jobs:
+  # 1) Decide what to do (auto vs manual, platforms, version, …).
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      version:    ${{ steps.read.outputs.version }}
+      changed:    ${{ steps.diff.outputs.changed }}
+      platforms:  ${{ steps.fan.outputs.platforms }}
+      profile:    ${{ steps.fan.outputs.profile }}
+      distribute: ${{ steps.fan.outputs.distribute }}
+      is_push:    ${{ steps.fan.outputs.is_push }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - id: read
+        name: Read app.json version
+        run: |
+          V=$(jq -r '.expo.version' app.json)
+          if [[ -z "$V" || "$V" == "null" ]]; then
+            echo "::error::expo.version missing in app.json"; exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "→ version: $V"
+
+      - id: diff
+        name: Did the version change?
+        env:
+          FORCE: ${{ github.event.inputs.force }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            # Manual dispatch always runs unless we explicitly skipped it.
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PREV=$(git show HEAD~1:app.json 2>/dev/null | jq -r '.expo.version' 2>/dev/null || echo "")
+          if [[ "$PREV" != "${{ steps.read.outputs.version }}" ]]; then
+            echo "→ ${PREV:-<none>} → ${{ steps.read.outputs.version }} — build"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "→ version unchanged — skip"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - id: fan
+        name: Resolve matrix + flags
+        env:
+          DISPATCH_PLATFORM: ${{ github.event.inputs.platform }}
+          DISPATCH_PROFILE:  ${{ github.event.inputs.profile }}
+          DISPATCH_DIST:     ${{ github.event.inputs.distribute }}
+          DEFAULT_PLATFORMS: ${{ vars.RELEASE_PLATFORMS || 'android' }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            SEL="$DISPATCH_PLATFORM"; PROF="$DISPATCH_PROFILE"; DIST="$DISPATCH_DIST"
+            echo "is_push=false" >> "$GITHUB_OUTPUT"
+          else
+            SEL="$DEFAULT_PLATFORMS"; PROF="preview"; DIST="firebase"
+            echo "is_push=true" >> "$GITHUB_OUTPUT"
+          fi
+          [[ "$SEL" == "all" ]] && LIST='["android","ios"]' || LIST="[\"$SEL\"]"
+          echo "platforms=$LIST"      >> "$GITHUB_OUTPUT"
+          echo "profile=$PROF"        >> "$GITHUB_OUTPUT"
+          echo "distribute=$DIST"     >> "$GITHUB_OUTPUT"
+          echo "→ $SEL · $PROF · distribute=$DIST"
+
+  # 2) Build (and optionally distribute) per platform.
+  build:
+    name: ${{ matrix.platform }} (${{ needs.plan.outputs.profile }})
+    needs: plan
+    if: needs.plan.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.plan.outputs.platforms) }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm }
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify required secrets
+        env:
+          EXPO_TOKEN:               ${{ secrets.EXPO_TOKEN }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_APP_ID_ANDROID:  ${{ secrets.FIREBASE_APP_ID_ANDROID }}
+          FIREBASE_APP_ID_IOS:      ${{ secrets.FIREBASE_APP_ID_IOS }}
+          DIST:                     ${{ needs.plan.outputs.distribute }}
+          PLATFORM:                 ${{ matrix.platform }}
+        run: |
+          missing=""
+          [[ -z "$EXPO_TOKEN" ]] && missing="$missing EXPO_TOKEN"
+          if [[ "$DIST" == "firebase" ]]; then
+            [[ -z "$FIREBASE_SERVICE_ACCOUNT" ]] && missing="$missing FIREBASE_SERVICE_ACCOUNT"
+            if [[ "$PLATFORM" == "android" && -z "$FIREBASE_APP_ID_ANDROID" ]]; then
+              missing="$missing FIREBASE_APP_ID_ANDROID"
+            fi
+            if [[ "$PLATFORM" == "ios" && -z "$FIREBASE_APP_ID_IOS" ]]; then
+              missing="$missing FIREBASE_APP_ID_IOS"
+            fi
+          fi
+          if [[ -n "$missing" ]]; then
+            echo "::error::Missing required secrets:$missing"
+            echo "Add at Settings → Secrets and variables → Actions."
+            echo "iOS-only tip: set repo variable RELEASE_PLATFORMS=android to skip iOS auto-release."
+            exit 1
+          fi
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Compose release notes
+        id: notes
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | head -n1 || true)
+          if [[ -n "$PREV_TAG" ]]; then
+            COMMITS=$(git log --no-merges --pretty=format:"- %s" "$PREV_TAG"..HEAD || true)
+            RANGE="changes since $PREV_TAG"
+          else
+            COMMITS=$(git log --no-merges --pretty=format:"- %s" -n 20 || true)
+            RANGE="last 20 commits"
+          fi
+          [[ -z "$COMMITS" ]] && COMMITS="- Maintenance release"
+          NOTES="Saffron Cashier v${VERSION} (${RANGE}):
+
+          ${COMMITS}"
+          {
+            echo "body<<NOTES_EOF"
+            echo "${NOTES:0:15000}"
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build on EAS
+        env:
+          EXPO_PUBLIC_API_URL: https://cash-flow.saffron.waw.pl/api
+        run: |
+          npx eas build \
+            --profile "${{ needs.plan.outputs.profile }}" \
+            --platform "${{ matrix.platform }}" \
+            --non-interactive \
+            --wait
+
+      - name: Resolve latest build artifact
+        if: needs.plan.outputs.distribute == 'firebase'
+        id: artifact
+        run: |
+          BUILD_JSON=$(npx eas build:list \
+            --status finished --limit 1 \
+            --platform "${{ matrix.platform }}" \
+            --non-interactive --json)
+          URL=$(echo "$BUILD_JSON" | jq -r '.[0].artifacts.buildUrl // .[0].artifacts.applicationArchiveUrl // empty')
+          V=$(echo "$BUILD_JSON" | jq -r '.[0].appVersion // empty')
+          [[ -z "$URL" ]] && { echo "::error::EAS returned no finished build URL"; exit 1; }
+          EXT=apk; [[ "${{ matrix.platform }}" == "ios" ]] && EXT=ipa
+          mkdir -p dist
+          OUT="dist/saffron-cashier-${{ matrix.platform }}-${V:-${{ needs.plan.outputs.version }}}.$EXT"
+          curl -L --fail --silent --show-error -o "$OUT" "$URL"
+          echo "file=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Distribute to Firebase App Distribution
+        if: needs.plan.outputs.distribute == 'firebase'
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ matrix.platform == 'android' && secrets.FIREBASE_APP_ID_ANDROID || secrets.FIREBASE_APP_ID_IOS }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          groups: ${{ vars.FIREBASE_GROUPS || 'testers' }}
+          file: ${{ steps.artifact.outputs.file }}
+          releaseNotes: ${{ steps.notes.outputs.body }}
+
+      - name: Upload artifact to workflow run
+        if: needs.plan.outputs.distribute == 'firebase'
+        uses: actions/upload-artifact@v4
+        with:
+          name: saffron-cashier-${{ matrix.platform }}-v${{ needs.plan.outputs.version }}
+          path: ${{ steps.artifact.outputs.file }}
+          if-no-files-found: warn
+          retention-days: 30
+
+  # 3) Tag commit + open GitHub Release (auto-trigger only).
+  release:
+    name: Tag + GitHub Release
+    needs: [plan, build]
+    if: needs.plan.outputs.changed == 'true' && needs.plan.outputs.is_push == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: Tag v${{ needs.plan.outputs.version }}
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          TAG="v$VERSION"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "→ tag $TAG already exists"; exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Saffron Cashier v$VERSION"
+          git push origin "$TAG"
+
+      - name: Compose release body
+        id: rel
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          PREV_TAG=$(git tag --list 'v*' --sort=-v:refname | sed -n '2p' || true)
+          if [[ -n "$PREV_TAG" ]]; then
+            COMMITS=$(git log --no-merges --pretty=format:"- %s (%h)" "$PREV_TAG"..HEAD || true)
+            RANGE="since $PREV_TAG"
+          else
+            COMMITS=$(git log --no-merges --pretty=format:"- %s (%h)" -n 20 || true)
+            RANGE="first 20 commits"
+          fi
+          [[ -z "$COMMITS" ]] && COMMITS="- Maintenance release"
+          {
+            echo "body<<E"
+            echo "**Saffron Cashier v$VERSION** — $RANGE"
+            echo ""
+            echo "$COMMITS"
+            echo ""
+            echo "_Distributed via Firebase App Distribution to \`${{ vars.FIREBASE_GROUPS || 'testers' }}\`._"
+            echo "E"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.plan.outputs.version }}
+          name: Saffron Cashier v${{ needs.plan.outputs.version }}
+          body: ${{ steps.rel.outputs.body }}
+          draft: false
+          prerelease: false

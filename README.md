@@ -45,7 +45,7 @@ bash scripts/release.sh 1.2.3 --message "Hotfix BLIK rounding"
 
 The script bumps `expo.version`, `android.versionCode`, and `ios.buildNumber` in `app.json`, commits with `release(mobile): vX.Y.Z`, and pushes.
 
-The GitHub Action `release` then takes over:
+The single GitHub Action `ci` then takes over:
 
 1. Detects the version change.
 2. Builds on EAS with the `preview` profile (preview = internal APK / ad‑hoc IPA).
@@ -55,13 +55,13 @@ The GitHub Action `release` then takes over:
 
 Testers see the new build inside **Firebase App Tester** within ~10–15 minutes.
 
-## Workflows
+## The one workflow — `.github/workflows/ci.yml`
 
-| Workflow | Trigger | Purpose |
-|----------|---------|---------|
-| `release.yml` | Auto on push to `main` that bumps `expo.version`, plus manual dispatch | **Continuous delivery.** Builds on EAS, distributes via Firebase, tags `vX.Y.Z`, opens a GitHub Release. |
-| `firebase.yml` | Manual only | Re-distribute the latest build without a version bump (hotfix / re-runs). |
-| `eas.yml` | Manual only | Plain EAS build (no Firebase upload, link via expo.dev). |
+| Trigger | What happens |
+|---------|--------------|
+| Push to `main` that bumps `expo.version` in `app.json` | Build → Firebase → tag `vX.Y.Z` → GitHub Release |
+| Actions → "ci" → **Run workflow** (manual dispatch) | You pick `platform`, `profile`, and `distribute` (`firebase` or `none`). Use this for hotfix re-distribution or for a plain EAS build with no Firebase upload. |
+| Push to `main` without a version bump | Workflow runs the `plan` job, sees no version change, and exits cleanly without spending an EAS build. |
 
 ## GitHub repository secrets
 
