@@ -13,7 +13,8 @@ import type { User } from "@/lib/types";
 type AuthCtx = {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => Promise<void>;
 };
 
@@ -46,14 +47,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     const res = await api<{ token: string; user: User }>("/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username: username.trim(), password }),
     });
     if (res.user.role !== "CASHIER") {
       throw new Error("This app is for cashiers only. Managers and admins should use the web app.");
     }
+    await setToken(res.token);
+    setUser(res.user);
+  }, []);
+
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const res = await api<{ token: string; user: User }>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
     await setToken(res.token);
     setUser(res.user);
   }, []);
@@ -64,8 +74,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, logout }),
-    [user, loading, login, logout]
+    () => ({ user, loading, login, changePassword, logout }),
+    [user, loading, login, changePassword, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

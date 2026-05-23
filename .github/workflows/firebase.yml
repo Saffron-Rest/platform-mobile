@@ -1,0 +1,165 @@
+# Manual re-distribution via Firebase App Distribution.
+#
+# Use this when you want to ship the latest EAS build again without bumping
+# `expo.version` — e.g. you cancelled the auto-release run halfway through,
+# or you just want to re-notify the testers.
+#
+# For the standard "ship a new version" flow, just bump the version in
+# app.json (npm run release:patch) and let `release.yml` handle it.
+#
+# Required GitHub secrets:
+#   EXPO_TOKEN
+#   FIREBASE_SERVICE_ACCOUNT
+#   FIREBASE_APP_ID_ANDROID    (and/or FIREBASE_APP_ID_IOS)
+#
+# Optional repo variable:
+#   FIREBASE_GROUPS            comma-separated tester groups (default: testers)
+name: firebase
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build & distribute
+        required: true
+        default: android
+        type: choice
+        options: [android, ios, all]
+      profile:
+        description: EAS build profile
+        required: true
+        default: preview
+        type: choice
+        options: [preview, production]
+      release_notes:
+        description: Release notes for testers
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      platforms: ${{ steps.set.outputs.platforms }}
+    steps:
+      - id: set
+        run: |
+          if [[ "${{ github.event.inputs.platform }}" == "all" ]]; then
+            echo 'platforms=["android","ios"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'platforms=["${{ github.event.inputs.platform }}"]' >> "$GITHUB_OUTPUT"
+          fi
+
+  build-and-distribute:
+    name: ${{ matrix.platform }} → Firebase
+    needs: matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ${{ fromJSON(needs.matrix.outputs.platforms) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify required secrets
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          FIREBASE_APP_ID_ANDROID: ${{ secrets.FIREBASE_APP_ID_ANDROID }}
+          FIREBASE_APP_ID_IOS: ${{ secrets.FIREBASE_APP_ID_IOS }}
+        run: |
+          missing=""
+          [[ -z "$EXPO_TOKEN" ]] && missing="$missing EXPO_TOKEN"
+          [[ -z "$FIREBASE_SERVICE_ACCOUNT" ]] && missing="$missing FIREBASE_SERVICE_ACCOUNT"
+          if [[ "${{ matrix.platform }}" == "android" && -z "$FIREBASE_APP_ID_ANDROID" ]]; then
+            missing="$missing FIREBASE_APP_ID_ANDROID"
+          fi
+          if [[ "${{ matrix.platform }}" == "ios" && -z "$FIREBASE_APP_ID_IOS" ]]; then
+            missing="$missing FIREBASE_APP_ID_IOS"
+          fi
+          if [[ -n "$missing" ]]; then
+            echo "::error::Missing required secrets:$missing"
+            exit 1
+          fi
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build with EAS
+        env:
+          EXPO_PUBLIC_API_URL: https://cash-flow.saffron.waw.pl/api
+        run: |
+          npx eas build \
+            --profile "${{ github.event.inputs.profile }}" \
+            --platform "${{ matrix.platform }}" \
+            --non-interactive \
+            --wait
+
+      - name: Resolve latest build artifact
+        id: artifact
+        run: |
+          BUILD_JSON=$(npx eas build:list \
+            --status finished \
+            --limit 1 \
+            --platform "${{ matrix.platform }}" \
+            --non-interactive \
+            --json)
+          URL=$(echo "$BUILD_JSON" | jq -r '.[0].artifacts.buildUrl // .[0].artifacts.applicationArchiveUrl // empty')
+          VERSION=$(echo "$BUILD_JSON" | jq -r '.[0].appVersion // "unknown"')
+          if [[ -z "$URL" ]]; then
+            echo "::error::No finished build URL returned from EAS"
+            exit 1
+          fi
+          EXT="apk"; [[ "${{ matrix.platform }}" == "ios" ]] && EXT="ipa"
+          mkdir -p dist
+          OUT="dist/saffron-cashier-${{ matrix.platform }}-$VERSION.$EXT"
+          curl -L --fail --silent --show-error -o "$OUT" "$URL"
+          echo "file=$OUT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Pick Firebase App ID
+        id: appid
+        env:
+          ANDROID_APP_ID: ${{ secrets.FIREBASE_APP_ID_ANDROID }}
+          IOS_APP_ID: ${{ secrets.FIREBASE_APP_ID_IOS }}
+        run: |
+          if [[ "${{ matrix.platform }}" == "android" ]]; then
+            echo "id=$ANDROID_APP_ID" >> "$GITHUB_OUTPUT"
+          else
+            echo "id=$IOS_APP_ID" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compose release notes
+        id: notes
+        run: |
+          if [[ -n "${{ github.event.inputs.release_notes }}" ]]; then
+            NOTE="${{ github.event.inputs.release_notes }}"
+          else
+            NOTE="Build #${{ github.run_number }} (v${{ steps.artifact.outputs.version }}) — ${{ github.event.head_commit.message || 'manual rebuild' }}"
+          fi
+          NOTE="${NOTE:0:15000}"
+          {
+            echo "notes<<EOF"
+            echo "$NOTE"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Distribute to Firebase App Distribution
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ steps.appid.outputs.id }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          groups: ${{ vars.FIREBASE_GROUPS || 'testers' }}
+          file: ${{ steps.artifact.outputs.file }}
+          releaseNotes: ${{ steps.notes.outputs.notes }}

@@ -37,7 +37,7 @@
       ]
     },
     "notification": {
-      "icon": "./assets/icon.png",
+      "icon": "./assets/notification-icon.png",
       "color": "#c45c26"
     },
     "plugins": [
@@ -47,7 +47,7 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/icon.png",
+          "icon": "./assets/notification-icon.png",
           "color": "#c45c26",
           "defaultChannel": "default"
         }
@@ -68,8 +68,9 @@
         "origin": false
       },
       "eas": {
-        "projectId": "bb69bbcc-5bae-469f-a40c-be15524ae2cd"
+        "projectId": "a6f5cebb-97ec-4250-ac8b-df9c912db38a"
       }
-    }
+    },
+    "owner": "ihakhverdiyev"
   }
 }

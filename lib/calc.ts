@@ -31,7 +31,8 @@ export function expenseTotalBySource(expenses: ExpenseLine[], source: PaymentSou
     .reduce((s, e) => s + (e.amount || 0), 0);
 }
 
-export function closingBalance(d: EntryFormData, expenses: ExpenseLine[]) {
+/** Book expected drawer: opening + cash sales − refunds − cash expenses − payouts. */
+export function bookExpectedCash(d: EntryFormData, expenses: ExpenseLine[]) {
   return (
     d.openingBalance +
     d.cashSales -
@@ -41,8 +42,13 @@ export function closingBalance(d: EntryFormData, expenses: ExpenseLine[]) {
   );
 }
 
+/** Expected cash in drawer — same as bookExpectedCash. */
+export function closingBalance(d: EntryFormData, expenses: ExpenseLine[]) {
+  return bookExpectedCash(d, expenses);
+}
+
 export function cashDifference(d: EntryFormData, expenses: ExpenseLine[]) {
-  return d.actualCashCounted - closingBalance(d, expenses);
+  return num(d.actualCashCounted) - bookExpectedCash(d, expenses);
 }
 
 export function fmt(n: number) {

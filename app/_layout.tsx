@@ -28,9 +28,12 @@ function AuthGate() {
     if (loading) return;
     SplashScreen.hideAsync().catch(() => {});
     const onLogin = segments[0] === "login";
+    const onChangePassword = segments[0] === "change-password";
     if (!user && !onLogin) {
       router.replace("/login");
-    } else if (user && onLogin) {
+    } else if (user?.mustChangePassword && !onChangePassword) {
+      router.replace("/change-password");
+    } else if (user && !user.mustChangePassword && (onLogin || onChangePassword)) {
       router.replace("/(tabs)");
     }
   }, [user, loading, segments, router]);
@@ -47,6 +50,7 @@ function AuthGate() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="login" />
+      <Stack.Screen name="change-password" />
       <Stack.Screen name="(tabs)" />
     </Stack>
   );

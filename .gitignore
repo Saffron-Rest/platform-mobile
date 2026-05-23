@@ -15,22 +15,20 @@ ios/
 .env
 .env.*
 !.env.example
+!.env.firebase.example
 *.jks
 *.p8
 *.p12
 *.key
 *.mobileprovision
+firebase-service-account*.json
+GoogleService-Info.plist
+google-services.json
+
+# Local artifacts downloaded for Firebase distribution
+dist/
 
 # OS & editors
 .DS_Store
 .idea/
-.vscode/
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# EAS / credentials
-credentials.json
-google-services.json
-GoogleService-Info.plist

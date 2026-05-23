@@ -14,7 +14,7 @@ import { colors, spacing } from "@/lib/theme";
 
 export default function LoginScreen() {
   const { login } = useAuth();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -23,7 +23,7 @@ export default function LoginScreen() {
     setError("");
     setLoading(true);
     try {
-      await login(email.trim(), password);
+      await login(username.trim(), password);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Login failed");
     } finally {
@@ -43,15 +43,14 @@ export default function LoginScreen() {
 
         <View style={styles.card}>
           {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Text style={styles.label}>Email</Text>
+          <Text style={styles.label}>Username</Text>
           <TextInput
             style={styles.input}
             autoCapitalize="none"
-            keyboardType="email-address"
-            autoComplete="email"
-            value={email}
-            onChangeText={setEmail}
-            placeholder="you@restaurant.com"
+            autoComplete="username"
+            value={username}
+            onChangeText={setUsername}
+            placeholder="your.username"
             placeholderTextColor={colors.muted}
           />
           <Text style={styles.label}>Password</Text>
@@ -65,14 +64,12 @@ export default function LoginScreen() {
           <Button
             title="Sign in"
             loading={loading}
-            disabled={!email.trim() || !password}
+            disabled={!username.trim() || !password}
             onPress={handleLogin}
           />
         </View>
 
-        <Text style={styles.demo}>
-          Demo: cashier@saffron.local / cashier123
-        </Text>
+        <Text style={styles.demo}>Sign in with the username your manager gave you.</Text>
       </View>
     </KeyboardAvoidingView>
   );

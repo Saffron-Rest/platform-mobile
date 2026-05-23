@@ -1,36 +1,28 @@
 # Saffron Cashier (Expo)
 
-Mobile app for cashiers — connects to the **production API** on your VPS when built with EAS.
+Mobile app for cashiers — connects to the **production API** on the Saffron VPS when built with EAS.
 
 ## API URL
 
 | Environment | URL |
 |-------------|-----|
 | **Production (EAS)** | `https://cash-flow.saffron.waw.pl/api` |
-| Local dev | `mobile/.env` → `EXPO_PUBLIC_API_URL` |
+| Local dev | `.env` → `EXPO_PUBLIC_API_URL` |
 
 Configured in `eas.json` for `preview` and `production` profiles.
 
 ## First-time Expo setup
 
-1. Install tools:
-
 ```bash
-cd mobile
 npm install
 npm install -g eas-cli   # or: npx eas-cli
-```
-
-2. Log in and link the project:
-
-```bash
 eas login
-eas init
+eas init                 # only if expo.extra.eas.projectId is empty
 ```
 
-`eas init` creates the project on [expo.dev](https://expo.dev) and writes `projectId` into `app.json` → `expo.extra.eas.projectId`.
+`eas init` creates the project on [expo.dev](https://expo.dev) and writes `projectId` into `app.json`. This repo already has one (`a6f5cebb-…`) so you usually skip this step.
 
-3. Local dev (optional):
+## Local dev
 
 ```bash
 cp .env.example .env
@@ -38,7 +30,67 @@ cp .env.example .env
 npx expo start
 ```
 
-## Build & publish (EAS)
+## Cutting a release (automated)
+
+Everything below is automated by GitHub Actions. From a clean working tree on `main`:
+
+```bash
+npm run release:patch       # 1.0.0 → 1.0.1 — most common, fast feedback
+# or:
+npm run release:minor       # 1.0.0 → 1.1.0
+npm run release:major       # 1.0.0 → 2.0.0
+npm run release:dry         # preview the bump, do not write anything
+bash scripts/release.sh 1.2.3 --message "Hotfix BLIK rounding"
+```
+
+The script bumps `expo.version`, `android.versionCode`, and `ios.buildNumber` in `app.json`, commits with `release(mobile): vX.Y.Z`, and pushes.
+
+The GitHub Action `release` then takes over:
+
+1. Detects the version change.
+2. Builds on EAS with the `preview` profile (preview = internal APK / ad‑hoc IPA).
+3. Uploads to Firebase App Distribution, notifying the configured tester groups.
+4. Tags the commit `vX.Y.Z`.
+5. Creates a GitHub Release with auto-generated notes (commits since the previous tag).
+
+Testers see the new build inside **Firebase App Tester** within ~10–15 minutes.
+
+## Workflows
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `release.yml` | Auto on push to `main` that bumps `expo.version`, plus manual dispatch | **Continuous delivery.** Builds on EAS, distributes via Firebase, tags `vX.Y.Z`, opens a GitHub Release. |
+| `firebase.yml` | Manual only | Re-distribute the latest build without a version bump (hotfix / re-runs). |
+| `eas.yml` | Manual only | Plain EAS build (no Firebase upload, link via expo.dev). |
+
+## GitHub repository secrets
+
+Add at **Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Value |
+|--------|--------|
+| `EXPO_TOKEN` | [expo.dev/settings/access-tokens](https://expo.dev/settings/access-tokens) |
+| `FIREBASE_SERVICE_ACCOUNT` | Service-account JSON (paste the **whole file** as one secret) |
+| `FIREBASE_APP_ID_ANDROID` | `1:…:android:…` from Firebase console |
+| `FIREBASE_APP_ID_IOS` | `1:…:ios:…` (skip if Android-only) |
+
+Optional repo *variables* (Settings → Secrets and variables → Actions → Variables):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `FIREBASE_GROUPS` | `testers` | Tester groups to notify |
+| `RELEASE_PLATFORMS` | `android` | Platforms the auto-release workflow targets — `android`, `ios`, or `all` |
+
+## Free internal distribution (Firebase App Distribution)
+
+Manual / interactive fallback if you don't want a version bump:
+
+```bash
+cp .env.firebase.example .env.firebase   # fill in app IDs + service account path
+npm run firebase:release:android         # builds on EAS, uploads APK to Firebase
+```
+
+### Build & publish (EAS) directly
 
 **Android APK (internal / sideload):**
 
@@ -58,20 +110,6 @@ eas build --profile production --platform all
 eas submit --platform android --latest
 eas submit --platform ios --latest
 ```
-
-Download builds from the link EAS prints, or from [expo.dev](https://expo.dev) → your project → Builds.
-
-## GitHub Actions
-
-Workflow: `.github/workflows/mobile-eas.yml`
-
-Add repository secret:
-
-| Secret | Value |
-|--------|--------|
-| `EXPO_TOKEN` | [expo.dev](https://expo.dev) → Account → Access tokens |
-
-Trigger manually (**Actions → mobile-eas → Run workflow**) or push changes under `mobile/`.
 
 ## Sign in
 

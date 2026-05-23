@@ -189,8 +189,8 @@ export default function ReportScreen() {
 
       {locked && (
         <StatusBanner variant="warning">
-          Submitted and locked. Ask your manager to unlock if you need to fix anything, then save and
-          submit again here.
+          Submitted and locked. After your manager unlocks it, pull down to refresh this screen, then
+          save and submit again.
         </StatusBanner>
       )}
 

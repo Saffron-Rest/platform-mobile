@@ -5,9 +5,11 @@ export type PaymentSource = "CASH" | "CARD";
 
 export type User = {
   id: string;
-  email: string;
+  username: string;
+  email?: string | null;
   name: string;
   role: Role;
+  mustChangePassword?: boolean;
 };
 
 export type WorkSchedule = {

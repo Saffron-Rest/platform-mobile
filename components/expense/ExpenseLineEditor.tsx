@@ -22,6 +22,11 @@ const CATEGORIES = [
   { value: "STAFF_MEALS", label: "Staff meals" },
   { value: "DELIVERY", label: "Delivery" },
   { value: "PETTY_CASH", label: "Petty cash" },
+  { value: "UTILITIES", label: "Utilities" },
+  { value: "CLEANING", label: "Cleaning" },
+  { value: "MAINTENANCE", label: "Maintenance" },
+  { value: "RENT", label: "Rent" },
+  { value: "MARKETING", label: "Marketing" },
   { value: "OTHER", label: "Other" },
 ];
 
