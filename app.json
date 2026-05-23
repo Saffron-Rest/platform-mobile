@@ -2,7 +2,7 @@
   "expo": {
     "name": "Saffron Cashier",
     "slug": "saffron-cashflow",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "saffron",
@@ -23,7 +23,8 @@
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true
         }
-      }
+      },
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
@@ -34,7 +35,8 @@
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "versionCode": 1
     },
     "notification": {
       "icon": "./assets/notification-icon.png",
